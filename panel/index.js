@@ -2,6 +2,8 @@ import express from 'express';
 import auth from 'basic-auth';
 import { exec } from 'child_process';
 import os from 'os';
+import { readFile, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
 
 const app = express();
 const PORT = 4000;
@@ -19,6 +21,8 @@ function requireAuth(req, res, next) {
   return next();
 }
 
+app.use(express.json());
+app.use(express.text({ type: 'text/plain', limit: '10mb' }));
 app.use(requireAuth);
 
 function execPromise(command) {
@@ -74,6 +78,7 @@ app.get('/', (req, res) => {
       <h1 class="mb-4">VPS Admin Panel</h1>
       <div class="mb-3">
         <button id="refresh" class="btn btn-primary">Aggiorna dati</button>
+        <a href="/env" class="btn btn-secondary ms-2">Gestisci Configurazione (.env)</a>
       </div>
       <div id="cards" class="row g-3">
         <!-- Cards generate via JS -->
@@ -108,6 +113,144 @@ app.get('/', (req, res) => {
   </html>`;
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+});
+
+// Rotte per gestione file .env
+const ENV_FILE_PATH = '/srv/stack/.env';
+
+app.get('/env', async (req, res) => {
+  try {
+    let content = '';
+    if (existsSync(ENV_FILE_PATH)) {
+      content = await readFile(ENV_FILE_PATH, 'utf-8');
+    }
+    
+    const html = `<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gestione Configurazione - VPS Admin Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <style>
+      textarea { font-family: monospace; font-size: 0.9rem; }
+    </style>
+  </head>
+  <body class="bg-light">
+    <div class="container py-4">
+      <div class="mb-3">
+        <a href="/" class="btn btn-outline-secondary">← Torna alla Dashboard</a>
+      </div>
+      <h1 class="mb-4">Gestione Configurazione (.env)</h1>
+      <div class="alert alert-info">
+        <strong>Attenzione:</strong> Le modifiche al file .env richiedono il riavvio dei servizi per essere applicate.
+      </div>
+      <form id="envForm" class="mb-3">
+        <div class="mb-3">
+          <label for="envContent" class="form-label">Contenuto file /srv/stack/.env</label>
+          <textarea class="form-control" id="envContent" rows="25" name="content">${content.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</textarea>
+        </div>
+        <div class="d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Salva modifiche</button>
+          <button type="button" id="restartBtn" class="btn btn-success">Salva e Riavvia Servizi</button>
+          <button type="button" id="cancelBtn" class="btn btn-secondary">Annulla</button>
+        </div>
+      </form>
+      <div id="message"></div>
+    </div>
+    <script>
+      const form = document.getElementById('envForm');
+      const messageDiv = document.getElementById('message');
+      const restartBtn = document.getElementById('restartBtn');
+      
+      function showMessage(text, type = 'info') {
+        messageDiv.innerHTML = '<div class="alert alert-' + type + ' alert-dismissible fade show" role="alert">' +
+          text + '<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>';
+        setTimeout(() => messageDiv.innerHTML = '', 5000);
+      }
+      
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const content = document.getElementById('envContent').value;
+        try {
+          const res = await fetch('/env', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: content
+          });
+          const result = await res.json();
+          if (result.success) {
+            showMessage('File .env salvato con successo!', 'success');
+          } else {
+            showMessage('Errore: ' + (result.error || 'Errore sconosciuto'), 'danger');
+          }
+        } catch (err) {
+          showMessage('Errore durante il salvataggio: ' + err.message, 'danger');
+        }
+      });
+      
+      restartBtn.addEventListener('click', async () => {
+        const content = document.getElementById('envContent').value;
+        if (!confirm('Vuoi salvare le modifiche e riavviare tutti i servizi? Questa operazione può richiedere qualche momento.')) {
+          return;
+        }
+        try {
+          const res = await fetch('/env?restart=true', {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain' },
+            body: content
+          });
+          const result = await res.json();
+          if (result.success) {
+            showMessage('File .env salvato e servizi in riavvio. Controlla i log per verificare lo stato.', 'success');
+          } else {
+            showMessage('Errore: ' + (result.error || 'Errore sconosciuto'), 'danger');
+          }
+        } catch (err) {
+          showMessage('Errore durante il salvataggio/riavvio: ' + err.message, 'danger');
+        }
+      });
+      
+      document.getElementById('cancelBtn').addEventListener('click', () => {
+        window.location.href = '/';
+      });
+    </script>
+  </body>
+</html>`;
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.status(500).send('Errore nel caricamento del file: ' + String(e));
+  }
+});
+
+app.post('/env', async (req, res) => {
+  try {
+    const content = typeof req.body === 'string' ? req.body : req.body.content || '';
+    const shouldRestart = req.query.restart === 'true';
+    
+    // Salva il file
+    await writeFile(ENV_FILE_PATH, content, 'utf-8');
+    
+    let restartOutput = '';
+    if (shouldRestart) {
+      // Riavvia i servizi Docker Compose
+      const restartResult = await execPromise('cd /srv/stack/infra-deploy && docker compose --env-file /srv/stack/.env up -d');
+      restartOutput = restartResult.stdout + (restartResult.stderr || '');
+    }
+    
+    res.json({
+      success: true,
+      message: shouldRestart ? 'File salvato e servizi riavviati' : 'File salvato con successo',
+      restartOutput: shouldRestart ? restartOutput : undefined
+    });
+  } catch (e) {
+    res.status(500).json({
+      success: false,
+      error: String(e)
+    });
+  }
 });
 
 app.listen(PORT, () => {
