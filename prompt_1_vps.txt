@@ -1,0 +1,396 @@
+🚀 PROMPT FINALE PER CURSOR — INFRASTRUTTURA VPS GESTIONALE UNLIMITED
+
+Agisci come DevOps Engineer esperto in Docker e ambienti di produzione multi-tenant.
+
+🎯 OBIETTIVO
+
+Devi creare un’infrastruttura completa per la VPS che ospiterà:
+
+Il gestionale PHP/MySQL (che caricherò in seguito).
+
+Il bot WhatsApp (Node.js, Venom) — predisposto ma disabilitato per ora.
+
+n8n per le automazioni.
+
+MariaDB.
+
+Un pannello amministrativo proprietario (admin panel DEV) che mi permetta di monitorare e in futuro gestire la VPS (servizi, spazio, domini, provisioning clienti, ecc.).
+
+Il gestionale è già sviluppato, quindi non devi scrivere codice applicativo.
+Devi solo preparare la VPS, installare l’ambiente e creare tutti i file necessari per un deploy e una gestione facile.
+
+🧱 STRUTTURA DEL PROGETTO
+
+Crea una cartella infra-deploy/ con questa struttura:
+
+infra-deploy/
+├─ docker-compose.yml
+├─ Caddyfile
+├─ env/
+│   └─ prod.env.example
+├─ scripts/
+│   ├─ install.sh
+│   ├─ deploy.sh
+│   └─ wizard.sh
+├─ panel/
+│   ├─ index.js
+│   └─ package.json
+└─ README.md
+
+🐋 STACK DOCKER-COMPOSE
+
+Crea un file docker-compose.yml con questi servizi:
+
+🔹 caddy
+
+Image: caddy:2
+
+Espone le porte 80 e 443.
+
+Usa ${APP_DOMAIN}, ${BOT_DOMAIN}, ${N8N_DOMAIN}, ${PANEL_DOMAIN} dal file .env.
+
+Monta Caddyfile, caddy_data, caddy_config.
+
+Monta /srv/stack/gestionale come root PHP.
+
+Fa proxy:
+
+${APP_DOMAIN} → PHP-FPM (php:9000)
+
+${BOT_DOMAIN} → bot:3000
+
+${N8N_DOMAIN} → n8n:5678
+
+${PANEL_DOMAIN} → panel:4000
+
+🔹 php
+
+Image: php:8.2-fpm
+
+Working dir: /var/www/gestionale
+
+Monta /srv/stack/gestionale → /var/www/gestionale
+
+Espone 9000
+
+Legge le variabili d’ambiente da .env
+
+🔹 db
+
+Image: mariadb:10.11
+
+Variabili: MYSQL_ROOT_PASSWORD, MYSQL_DATABASE, MYSQL_USER, MYSQL_PASSWORD
+
+Volume persistente db_data
+
+🔹 redis
+
+Image: redis:7-alpine
+
+Volume persistente redis_data
+
+🔹 bot
+
+Image: node:20
+
+Working dir: /opt/bot
+
+Monta /srv/stack/bot → /opt/bot
+
+Avvia node index.js
+
+Espone 3000 solo internamente
+
+⚠️ Commenta o imposta replicas: 0 (il bot è solo predisposto)
+
+Include chiari commenti nel file su come abilitarlo in futuro
+
+🔹 n8n
+
+Image: n8nio/n8n:latest
+
+Espone 5678
+
+Environment:
+
+WEBHOOK_URL=https://${N8N_DOMAIN}/
+
+N8N_BASIC_AUTH_ACTIVE=true
+
+N8N_BASIC_AUTH_USER
+
+N8N_BASIC_AUTH_PASSWORD
+
+Volume: n8n_data
+
+🔹 panel
+
+Image: node:20
+
+Working dir: /opt/panel
+
+Monta ./panel:/opt/panel
+
+Espone 4000
+
+Command: node index.js
+
+Variabili d’ambiente:
+
+PANEL_USER, PANEL_PASS
+
+WA_BOT_ENABLED, APP_DOMAIN, BOT_DOMAIN, N8N_DOMAIN
+
+Volume: docker.sock:/var/run/docker.sock:ro (solo lettura, per monitorare container)
+
+Commenta che è il pannello DEV interno, accessibile solo con credenziali.
+
+Volumi globali
+volumes:
+  db_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  n8n_data:
+
+⚙️ CADDYFILE
+
+Crea un file Caddyfile che:
+
+Legge le variabili di ambiente.
+
+Gestisce questi host:
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    root * /var/www/gestionale/public
+    php_fastcgi php:9000
+    file_server
+}
+
+{$BOT_DOMAIN} {
+    reverse_proxy bot:3000
+}
+
+{$N8N_DOMAIN} {
+    reverse_proxy n8n:5678
+}
+
+{$PANEL_DOMAIN} {
+    reverse_proxy panel:4000
+}
+
+
+In locale, se i domini non sono pubblici, deve funzionare anche in HTTP (aggiungi commenti su come disattivare TLS).
+
+⚙️ ENV FILE
+
+Crea env/prod.env.example con tutte queste variabili e valori di esempio:
+
+APP_DOMAIN=app.tuodominio.it
+BOT_DOMAIN=bot.tuodominio.it
+N8N_DOMAIN=n8n.tuodominio.it
+PANEL_DOMAIN=panel.tuodominio.it
+
+MYSQL_ROOT_PASSWORD=rootpass123
+MYSQL_DATABASE=gest
+MYSQL_USER=gestuser
+MYSQL_PASSWORD=gestpass
+
+MAILGUN_API_KEY=key-example
+MAILGUN_DOMAIN=example.mailgun.org
+TWILIO_ACCOUNT_SID=ACxxxx
+TWILIO_AUTH_TOKEN=xxxx
+TWILIO_MESSAGING_SERVICE_SID=MGxxxx
+
+WA_BOT_ENABLED=false
+WA_BOT_API_KEY=supersegreta
+WA_BOT_HMAC_KEY=firmamessaggi
+
+PHP_MEMORY_LIMIT=512M
+
+N8N_BASIC_AUTH_USER=admin
+N8N_BASIC_AUTH_PASSWORD=strongn8npass
+
+PANEL_USER=devadmin
+PANEL_PASS=superpassword123
+
+⚙️ SCRIPT DI INSTALLAZIONE
+scripts/install.sh
+
+Per VPS Ubuntu 22.04 nuova.
+
+Fa:
+
+apt update && apt upgrade -y
+
+Installa ca-certificates curl gnupg ufw git
+
+Installa Docker Engine e Compose plugin.
+
+Abilita firewall UFW (22, 80, 443).
+
+Crea /srv/stack
+
+Clona repo infra-deploy (commento con esempio git clone)
+
+Copia env/prod.env.example → /srv/stack/.env
+
+Istruisce l’utente a modificare .env
+
+Lancia docker compose --env-file /srv/stack/.env up -d
+
+Mostra messaggio finale con “✅ VPS pronta”.
+
+scripts/deploy.sh
+
+Fa:
+
+git pull
+
+docker compose --env-file /srv/stack/.env up -d
+
+docker system prune -f
+
+Aggiorna timestamp /srv/stack/.last_deploy
+
+scripts/wizard.sh
+
+Guida l’utente al setup iniziale.
+
+Chiede domini, credenziali DB, N8N, PANEL, ecc.
+
+Genera .env partendo da prod.env.example.
+
+Avvia stack automaticamente.
+
+🧠 ADMIN PANEL (servizio panel)
+
+Crea in panel/ i seguenti file:
+
+panel/package.json
+{
+  "name": "vps-panel",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.0",
+    "basic-auth": "^2.0.1"
+  }
+}
+
+panel/index.js
+
+App Express che:
+
+Protegge tutte le rotte con basic auth (PANEL_USER, PANEL_PASS).
+
+Espone:
+
+/ → dashboard HTML semplice (Bootstrap)
+
+/metrics.json → JSON con:
+
+Hostname, uptime, loadavg
+
+RAM totale/usata (via free -m)
+
+Spazio disco /srv/stack (via df -h)
+
+Stato container principali (docker ps --format o docker compose ps)
+
+Valore WA_BOT_ENABLED
+
+Ultimo deploy (/srv/stack/.last_deploy)
+
+Usa child_process.exec per eseguire i comandi shell (solo lettura).
+
+HTML della dashboard:
+
+Titolo “VPS Admin Panel”
+
+Card: CPU, RAM, Disco, Containers (verde/rosso), Ultimo Deploy, Bot abilitato
+
+Pulsante “Aggiorna dati” → ricarica /metrics.json.
+
+Il pannello deve essere minimalista ma chiaro, leggibile anche da mobile.
+
+🧩 README.md
+
+Deve spiegare:
+
+Installazione VPS nuova
+
+ssh root@IP
+apt update && apt install git -y
+git clone https://github.com/<repo>/infra-deploy.git /srv/stack
+cd /srv/stack/infra-deploy/scripts
+bash install.sh
+
+
+Prima configurazione
+
+bash wizard.sh
+
+
+Deploy futuro
+
+bash deploy.sh
+
+
+Accessi
+
+Gestionale → https://${APP_DOMAIN}
+
+n8n → https://${N8N_DOMAIN} (auth base)
+
+Pannello VPS → https://${PANEL_DOMAIN} (credenziali PANEL_USER/PANEL_PASS)
+
+Abilitare il Bot WhatsApp in futuro
+
+Modificare .env: WA_BOT_ENABLED=true
+
+Togliere replicas: 0 dal servizio bot
+
+docker compose up -d bot
+
+Estensioni future
+
+Il panel è pensato per essere esteso con:
+
+creazione nuovi spazi cliente
+
+gestione domini e virtual host
+
+attivazione bot WhatsApp per singolo cliente
+
+monitoraggio multi-tenant
+
+Non serve SSH per operazioni standard.
+
+🔐 SICUREZZA
+
+Tutti i servizi dietro Caddy con HTTPS automatico (Let’s Encrypt).
+
+Pannello panel protetto da Basic Auth forte.
+
+Firewall UFW: 22, 80, 443 aperti.
+
+Nessun comando SSH necessario per operazioni base.
+
+Tutti i file .env esclusi dal repo .gitignore.
+
+✅ RISULTATO FINALE
+
+Al termine, Cursor deve generare:
+
+Tutti i file completi e coerenti.
+
+Un’infrastruttura pronta per essere eseguita su VPS vergine Ubuntu 22.04.
+
+Possibilità di monitorare la VPS da remoto via panel.tuodominio.it.
+
+Tutto il sistema pronto ad accogliere il gestionale e il bot WhatsApp nella fase successiva.
+
+Documentazione chiara e autonoma in README.md.

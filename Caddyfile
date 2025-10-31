@@ -1,0 +1,29 @@
+{
+    # Abilita logging basilare
+    # auto_https on
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    root * /var/www/gestionale/public
+    php_fastcgi php:9000
+    file_server
+}
+
+{$BOT_DOMAIN} {
+    reverse_proxy bot:3000
+}
+
+{$N8N_DOMAIN} {
+    reverse_proxy n8n:5678
+}
+
+{$PANEL_DOMAIN} {
+    reverse_proxy panel:4000
+}
+
+# Nota: in ambienti locali senza DNS pubblico è possibile disabilitare TLS automatico
+# aggiungendo la direttiva `auto_https off` nel blocco globale e usando hostnames
+# come :80 o domini risolti nel /etc/hosts.
+
+

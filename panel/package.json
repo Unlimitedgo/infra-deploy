@@ -1,0 +1,12 @@
+{
+  "name": "vps-panel",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "express": "^4.19.0",
+    "basic-auth": "^2.0.1"
+  }
+}
+
+
