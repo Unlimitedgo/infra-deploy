@@ -29,6 +29,7 @@ services:
     container_name: php
     restart: unless-stopped
     working_dir: /var/www/gestionale
+    command: sh -c "apt-get update && apt-get install -y default-libmysqlclient-dev libicu-dev libzip-dev libxml2-dev && docker-php-ext-install pdo_mysql mysqli intl zip xml && php-fpm"
     expose:
       - "9000"
     env_file:
