@@ -91,18 +91,15 @@ app.get('/', (req, res) => {
           { title: 'Disco /srv/stack', body: '<pre class="mb-0">' + ok(data.disk) + '</pre>' },
           { title: 'Containers', body: containerOk ? '<span class="text-success fw-bold">OK</span>' : '<span class="text-danger fw-bold">KO</span>' },
           { title: 'Ultimo Deploy', body: ok(data.lastDeploy||'N/D') },
-          { title: 'Bot abilitato', body: ${WA_BOT_ENABLED ? "'Sì'" : "'No'"} }
+          { title: 'Bot abilitato', body: data.waBotEnabled ? 'Sì' : 'No' }
         ];
         const container = document.getElementById('cards');
-        container.innerHTML = cards.map(c => `
-          <div class="col-12 col-md-6 col-lg-4">
-            <div class="card h-100">
-              <div class="card-body">
-                <h5 class="card-title">${'${c.title}'}</h5>
-                <div class="card-text">${'${c.body}'}</div>
-              </div>
-            </div>
-          </div>`).join('');
+        container.innerHTML = cards.map(c => '<div class="col-12 col-md-6 col-lg-4">' +
+          '<div class="card h-100">' +
+          '<div class="card-body">' +
+          '<h5 class="card-title">' + c.title + '</h5>' +
+          '<div class="card-text">' + c.body + '</div>' +
+          '</div></div></div>').join('');
       }
       document.getElementById('refresh').addEventListener('click', load);
       load();
