@@ -30,7 +30,15 @@ function requireAuth(req, res, next) {
 
 app.use(express.json());
 app.use(express.text({ type: 'text/plain', limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '500mb' }));
 app.use(requireAuth);
+
+// Aggiungi timeout più lunghi per le richieste
+app.use((req, res, next) => {
+  req.setTimeout(600000); // 10 minuti
+  res.setTimeout(600000);
+  next();
+});
 
 // Configurazione multer per upload file
 const upload = multer({ 
@@ -38,9 +46,9 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 } // 500MB max
 });
 
-function execPromise(command) {
+function execPromise(command, timeout = 300000) {
   return new Promise((resolve) => {
-    exec(command, (error, stdout, stderr) => {
+    const child = exec(command, { timeout }, (error, stdout, stderr) => {
       if (error) {
         resolve({ error: true, stdout: stdout.toString(), stderr: stderr.toString() });
       } else {
@@ -425,6 +433,10 @@ app.get('/upload', (req, res) => {
 });
 
 app.post('/upload', upload.single('zipfile'), async (req, res) => {
+  // Imposta timeout più lungo per questa richiesta
+  req.setTimeout(600000); // 10 minuti
+  res.setTimeout(600000);
+  
   try {
     if (!req.file) {
       return res.status(400).json({ success: false, error: 'Nessun file caricato' });
@@ -440,7 +452,7 @@ app.post('/upload', upload.single('zipfile'), async (req, res) => {
     // Crea backup se richiesto
     if (createBackup && existsSync(GESTIONALE_PATH)) {
       const backupPath = `${GESTIONALE_PATH}_backup_${Date.now()}`;
-      await execPromise(`mv ${GESTIONALE_PATH} ${backupPath}`);
+      await execPromise(`mv ${GESTIONALE_PATH} ${backupPath}`, 60000);
     }
     
     // Crea la directory se non esiste
@@ -448,27 +460,32 @@ app.post('/upload', upload.single('zipfile'), async (req, res) => {
       mkdirSync(GESTIONALE_PATH, { recursive: true });
     } else {
       // Pulisci la directory esistente
-      await execPromise(`rm -rf ${GESTIONALE_PATH}/*`);
+      await execPromise(`rm -rf ${GESTIONALE_PATH}/*`, 60000);
     }
     
-    // Estrai il file ZIP
-    const extractResult = await execPromise(`cd ${GESTIONALE_PATH} && unzip -q -o ${tmpZipPath}`);
+    // Estrai il file ZIP con timeout più lungo
+    const extractResult = await execPromise(`cd ${GESTIONALE_PATH} && unzip -q -o ${tmpZipPath}`, 600000);
     
     // Rimuovi il file temporaneo
-    await execPromise(`rm -f ${tmpZipPath}`);
+    await execPromise(`rm -f ${tmpZipPath}`, 10000);
     
     // Imposta i permessi corretti
-    await execPromise(`chown -R 33:33 ${GESTIONALE_PATH} || true`); // 33 è l'uid di www-data
+    await execPromise(`chown -R 33:33 ${GESTIONALE_PATH} || true`, 60000); // 33 è l'uid di www-data
     
-    res.json({
-      success: true,
-      message: `Gestionale estratto in ${GESTIONALE_PATH}. Verifica i permessi e la struttura delle directory.`
-    });
+    if (!res.headersSent) {
+      res.json({
+        success: true,
+        message: `Gestionale estratto in ${GESTIONALE_PATH}. Verifica i permessi e la struttura delle directory.`
+      });
+    }
   } catch (e) {
-    res.status(500).json({
-      success: false,
-      error: String(e)
-    });
+    // Assicurati sempre di rispondere con JSON valido
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        error: String(e)
+      });
+    }
   }
 });
 
