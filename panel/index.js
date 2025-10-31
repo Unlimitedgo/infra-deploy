@@ -102,6 +102,7 @@ app.get('/', (req, res) => {
         <a href="/upload" class="btn btn-success ms-2">Upload Gestionale</a>
         <a href="/domains" class="btn btn-info ms-2 text-white">Gestisci Domini</a>
         <a href="/env" class="btn btn-secondary ms-2">Configurazione (.env)</a>
+        <a href="/phpmyadmin" class="btn btn-warning ms-2 text-dark">phpMyAdmin</a>
       </div>
       <div id="cards" class="row g-3">
         <!-- Cards generate via JS -->
@@ -295,8 +296,9 @@ async function regenerateCaddyfile() {
 
 ${envVars.APP_DOMAIN ? `${envVars.APP_DOMAIN} {
     encode zstd gzip
-    root * /var/www/gestionale/public
+    root * /var/www/gestionale
     php_fastcgi php:9000
+    try_files {path} {path}/ /index.php?{query}
     file_server
 }` : ''}
 
@@ -310,6 +312,10 @@ ${envVars.N8N_DOMAIN ? `${envVars.N8N_DOMAIN} {
 
 ${envVars.PANEL_DOMAIN ? `${envVars.PANEL_DOMAIN} {
     reverse_proxy panel:4000
+}` : ''}
+
+${envVars.PHPMYADMIN_DOMAIN ? `${envVars.PHPMYADMIN_DOMAIN} {
+    reverse_proxy phpmyadmin:80
 }` : ''}
 
 # Nota: in ambienti locali senza DNS pubblico è possibile disabilitare TLS automatico
@@ -500,7 +506,7 @@ app.get('/domains', async (req, res) => {
     // Estrai i domini dal .env
     const domains = {};
     envContent.split('\n').forEach(line => {
-      const match = line.match(/^(APP_DOMAIN|BOT_DOMAIN|N8N_DOMAIN|PANEL_DOMAIN)=(.*)$/);
+      const match = line.match(/^(APP_DOMAIN|BOT_DOMAIN|N8N_DOMAIN|PANEL_DOMAIN|PHPMYADMIN_DOMAIN)=(.*)$/);
       if (match) {
         domains[match[1]] = match[2].trim();
       }
@@ -547,6 +553,13 @@ app.get('/domains', async (req, res) => {
             <label for="n8nDomain" class="form-label">N8N_DOMAIN</label>
             <input type="text" class="form-control" id="n8nDomain" name="N8N_DOMAIN" value="${(domains.N8N_DOMAIN || '').replace(/"/g, '&quot;')}" placeholder="n8n.unlimitedgo.it">
             <div class="form-text">Dominio per n8n</div>
+          </div>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <label for="phpmyadminDomain" class="form-label">PHPMYADMIN_DOMAIN</label>
+            <input type="text" class="form-control" id="phpmyadminDomain" name="PHPMYADMIN_DOMAIN" value="${(domains.PHPMYADMIN_DOMAIN || '').replace(/"/g, '&quot;')}" placeholder="phpmyadmin.unlimitedgo.it">
+            <div class="form-text">Dominio per phpMyAdmin (opzionale)</div>
           </div>
         </div>
         <div class="mb-3">
@@ -607,7 +620,7 @@ app.get('/domains', async (req, res) => {
 
 app.post('/domains', async (req, res) => {
   try {
-    const { APP_DOMAIN, BOT_DOMAIN, N8N_DOMAIN, PANEL_DOMAIN } = req.body;
+    const { APP_DOMAIN, BOT_DOMAIN, N8N_DOMAIN, PANEL_DOMAIN, PHPMYADMIN_DOMAIN } = req.body;
     
     // Leggi il .env esistente
     let envContent = '';
@@ -618,7 +631,7 @@ app.post('/domains', async (req, res) => {
     // Aggiorna o aggiungi i domini
     const lines = envContent.split('\n');
     const updatedLines = [];
-    const found = { APP_DOMAIN: false, BOT_DOMAIN: false, N8N_DOMAIN: false, PANEL_DOMAIN: false };
+    const found = { APP_DOMAIN: false, BOT_DOMAIN: false, N8N_DOMAIN: false, PANEL_DOMAIN: false, PHPMYADMIN_DOMAIN: false };
     
     lines.forEach(line => {
       if (line.match(/^APP_DOMAIN=/)) {
@@ -633,6 +646,9 @@ app.post('/domains', async (req, res) => {
       } else if (line.match(/^PANEL_DOMAIN=/)) {
         updatedLines.push(`PANEL_DOMAIN=${PANEL_DOMAIN || ''}`);
         found.PANEL_DOMAIN = true;
+      } else if (line.match(/^PHPMYADMIN_DOMAIN=/)) {
+        updatedLines.push(`PHPMYADMIN_DOMAIN=${PHPMYADMIN_DOMAIN || ''}`);
+        found.PHPMYADMIN_DOMAIN = true;
       } else {
         updatedLines.push(line);
       }
@@ -643,6 +659,7 @@ app.post('/domains', async (req, res) => {
     if (!found.BOT_DOMAIN) updatedLines.push(`BOT_DOMAIN=${BOT_DOMAIN || ''}`);
     if (!found.N8N_DOMAIN) updatedLines.push(`N8N_DOMAIN=${N8N_DOMAIN || ''}`);
     if (!found.PANEL_DOMAIN) updatedLines.push(`PANEL_DOMAIN=${PANEL_DOMAIN || ''}`);
+    if (!found.PHPMYADMIN_DOMAIN && PHPMYADMIN_DOMAIN) updatedLines.push(`PHPMYADMIN_DOMAIN=${PHPMYADMIN_DOMAIN || ''}`);
     
     // Salva il .env aggiornato
     await writeFile(ENV_FILE_PATH, updatedLines.join('\n'), 'utf-8');
@@ -659,6 +676,63 @@ app.post('/domains', async (req, res) => {
       success: false,
       error: String(e)
     });
+  }
+});
+
+// Rotte per phpMyAdmin
+app.get('/phpmyadmin', async (req, res) => {
+  try {
+    // Leggi il .env per ottenere il dominio di phpMyAdmin
+    let envContent = '';
+    if (existsSync(ENV_FILE_PATH)) {
+      envContent = await readFile(ENV_FILE_PATH, 'utf-8');
+    }
+    
+    const envVars = {};
+    envContent.split('\n').forEach(line => {
+      const match = line.match(/^([^#=]+)=(.*)$/);
+      if (match) {
+        envVars[match[1].trim()] = match[2].trim();
+      }
+    });
+    
+    const phpmyadminDomain = envVars.PHPMYADMIN_DOMAIN;
+    const phpmyadminUrl = phpmyadminDomain ? `https://${phpmyadminDomain}` : null;
+    
+    const html = `<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>phpMyAdmin - VPS Admin Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <style>
+      iframe { border: none; width: 100%; height: calc(100vh - 100px); }
+    </style>
+  </head>
+  <body class="bg-light">
+    <div class="container-fluid py-3">
+      <div class="mb-3">
+        <a href="/" class="btn btn-outline-secondary">← Torna alla Dashboard</a>
+        ${phpmyadminUrl ? `<a href="${phpmyadminUrl}" target="_blank" class="btn btn-primary ms-2">Apri in nuova scheda</a>` : ''}
+      </div>
+      ${phpmyadminUrl ? `
+      <iframe src="${phpmyadminUrl}" title="phpMyAdmin"></iframe>
+      ` : `
+      <div class="alert alert-warning">
+        <h4>phpMyAdmin non configurato</h4>
+        <p>Per accedere a phpMyAdmin, configura il dominio <code>PHPMYADMIN_DOMAIN</code> nella sezione <a href="/domains">Gestisci Domini</a>.</p>
+        <p>Oppure accedi direttamente via IP e porta (non consigliato per produzione).</p>
+      </div>
+      `}
+    </div>
+  </body>
+</html>`;
+  
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.status(500).send('Errore: ' + String(e));
   }
 });
 
