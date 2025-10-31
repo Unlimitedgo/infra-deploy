@@ -285,22 +285,22 @@ async function regenerateCaddyfile() {
     # auto_https on
 }
 
-${envVars.APP_DOMAIN ? `{$${envVars.APP_DOMAIN}} {
+${envVars.APP_DOMAIN ? `${envVars.APP_DOMAIN} {
     encode zstd gzip
     root * /var/www/gestionale/public
     php_fastcgi php:9000
     file_server
 }` : ''}
 
-${envVars.BOT_DOMAIN ? `{$${envVars.BOT_DOMAIN}} {
+${envVars.BOT_DOMAIN ? `${envVars.BOT_DOMAIN} {
     reverse_proxy bot:3000
 }` : ''}
 
-${envVars.N8N_DOMAIN ? `{$${envVars.N8N_DOMAIN}} {
+${envVars.N8N_DOMAIN ? `${envVars.N8N_DOMAIN} {
     reverse_proxy n8n:5678
 }` : ''}
 
-${envVars.PANEL_DOMAIN ? `{$${envVars.PANEL_DOMAIN}} {
+${envVars.PANEL_DOMAIN ? `${envVars.PANEL_DOMAIN} {
     reverse_proxy panel:4000
 }` : ''}
 
