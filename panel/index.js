@@ -17,7 +17,7 @@ const WA_BOT_ENABLED = (process.env.WA_BOT_ENABLED || 'false') === 'true';
 // Costanti per percorsi
 const ENV_FILE_PATH = '/srv/stack/.env';
 const GESTIONALE_PATH = '/srv/stack/gestionale';
-const CADDYFILE_PATH = '/srv/stack/infra-deploy/Caddyfile';
+const CADDYFILE_PATH = '/opt/caddy/Caddyfile';
 
 function requireAuth(req, res, next) {
   const user = auth(req);
@@ -309,7 +309,8 @@ ${envVars.PANEL_DOMAIN ? `{$${envVars.PANEL_DOMAIN}} {
 # come :80 o domini risolti nel /etc/hosts.
 `;
 
-    // Salva il Caddyfile
+    // Salva il Caddyfile (montato in /opt/caddy/Caddyfile nel container panel)
+    // che corrisponde a ./Caddyfile nella directory del progetto
     await writeFile(CADDYFILE_PATH, caddyfile, 'utf-8');
     
     // Riavvia Caddy per applicare le modifiche
