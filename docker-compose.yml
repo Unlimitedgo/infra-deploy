@@ -20,6 +20,7 @@ services:
       - php
       - panel
       - n8n
+      - phpmyadmin
     networks:
       - stack
 
@@ -57,6 +58,21 @@ services:
     restart: unless-stopped
     volumes:
       - redis_data:/data
+    networks:
+      - stack
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: phpmyadmin
+    restart: unless-stopped
+    environment:
+      - PMA_HOST=db
+      - PMA_PORT=3306
+      - PMA_USER=${MYSQL_USER}
+      - PMA_PASSWORD=${MYSQL_PASSWORD}
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+    depends_on:
+      - db
     networks:
       - stack
 
