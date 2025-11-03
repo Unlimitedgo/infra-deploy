@@ -101,6 +101,7 @@ app.get('/', (req, res) => {
         <button id="refresh" class="btn btn-primary">Aggiorna dati</button>
         <a href="/upload" class="btn btn-success ms-2">Upload Gestionale</a>
         <a href="/domains" class="btn btn-info ms-2 text-white">Gestisci Domini</a>
+        <a href="/ftp" class="btn btn-dark ms-2">Gestisci FTP</a>
         <a href="/env" class="btn btn-secondary ms-2">Configurazione (.env)</a>
         <a href="/phpmyadmin" class="btn btn-warning ms-2 text-dark">phpMyAdmin</a>
       </div>
@@ -746,6 +747,429 @@ app.get('/phpmyadmin', async (req, res) => {
     res.send(html);
   } catch (e) {
     res.status(500).send('Errore: ' + String(e));
+  }
+});
+
+// Funzione helper per ottenere lista utenti FTP (utenti con shell /bin/bash o /usr/sbin/nologin ma con accesso a /srv/stack)
+async function getFtpUsers() {
+  try {
+    const result = await execPromise('getent passwd | grep -E "(/bin/(bash|sh)|/usr/sbin/nologin)" | cut -d: -f1,3,4,6', 10000);
+    const lines = result.stdout.split('\n').filter(l => l.trim());
+    const users = [];
+    
+    for (const line of lines) {
+      const parts = line.split(':');
+      if (parts.length >= 4) {
+        const username = parts[0];
+        const uid = parts[1];
+        const gid = parts[2];
+        const home = parts[3];
+        
+        // Controlla se l'utente ha accesso a /srv/stack o è nel gruppo www-data
+        const groupResult = await execPromise(`groups ${username} 2>/dev/null || echo ""`, 5000);
+        const inWwwData = groupResult.stdout.includes('www-data');
+        const hasAccess = home.includes('/srv/stack') || inWwwData;
+        
+        if (hasAccess || uid >= 1000) { // Solo utenti normali (non di sistema)
+          users.push({
+            username,
+            uid,
+            gid,
+            home,
+            groups: groupResult.stdout.trim(),
+            inWwwData
+          });
+        }
+      }
+    }
+    
+    return users;
+  } catch (e) {
+    return [];
+  }
+}
+
+// Rotte per gestione FTP
+app.get('/ftp', requireAuth, async (req, res) => {
+  try {
+    const users = await getFtpUsers();
+    
+    const html = `<!doctype html>
+<html lang="it">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gestione FTP - VPS Admin Panel</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <style>
+      .user-card { margin-bottom: 1rem; }
+      .password-input { font-family: monospace; }
+    </style>
+  </head>
+  <body class="bg-light">
+    <div class="container py-4">
+      <div class="mb-3">
+        <a href="/" class="btn btn-outline-secondary">← Torna alla Dashboard</a>
+      </div>
+      <h1 class="mb-4">Gestione Utenti FTP</h1>
+      
+      <div class="alert alert-info">
+        <strong>Info:</strong> Gli utenti FTP hanno accesso alla cartella <code>/srv/stack/gestionale</code>.
+        <br>Assicurati di utilizzare password sicure per gli utenti FTP.
+      </div>
+
+      <!-- Form per creare nuovo utente -->
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5 class="mb-0">Crea Nuovo Utente FTP</h5>
+        </div>
+        <div class="card-body">
+          <form id="createUserForm">
+            <div class="row">
+              <div class="col-md-4 mb-3">
+                <label for="newUsername" class="form-label">Nome Utente</label>
+                <input type="text" class="form-control" id="newUsername" name="username" required pattern="[a-z0-9_-]+" title="Solo lettere minuscole, numeri, underscore e trattini">
+                <div class="form-text">Solo lettere minuscole, numeri, underscore e trattini</div>
+              </div>
+              <div class="col-md-4 mb-3">
+                <label for="newPassword" class="form-label">Password</label>
+                <input type="password" class="form-control password-input" id="newPassword" name="password" required minlength="8">
+                <div class="form-text">Minimo 8 caratteri</div>
+              </div>
+              <div class="col-md-4 mb-3">
+                <label class="form-label">&nbsp;</label>
+                <button type="submit" class="btn btn-success w-100">Crea Utente</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+
+      <!-- Lista utenti esistenti -->
+      <h2 class="mb-3">Utenti FTP Esistenti</h2>
+      <div id="usersList">
+        <div class="text-center py-4">
+          <div class="spinner-border" role="status">
+            <span class="visually-hidden">Caricamento...</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // Carica lista utenti
+      async function loadUsers() {
+        try {
+          const res = await fetch('/ftp/api/list');
+          const data = await res.json();
+          const container = document.getElementById('usersList');
+          
+          if (data.error) {
+            container.innerHTML = '<div class="alert alert-danger">Errore: ' + data.error + '</div>';
+            return;
+          }
+          
+          if (!data.users || data.users.length === 0) {
+            container.innerHTML = '<div class="alert alert-info">Nessun utente FTP configurato.</div>';
+            return;
+          }
+          
+          container.innerHTML = data.users.map(user => {
+            const hasWwwData = user.inWwwData || user.groups.includes('www-data');
+            return \`<div class="card user-card">
+              <div class="card-body">
+                <div class="row align-items-center">
+                  <div class="col-md-3">
+                    <h5 class="mb-0">\${escapeHtml(user.username)}</h5>
+                    <small class="text-muted">UID: \${user.uid} | GID: \${user.gid}</small>
+                    <br><small class="text-muted">Home: \${escapeHtml(user.home)}</small>
+                    <br><small class="\${hasWwwData ? 'text-success' : 'text-warning'}">
+                      \${hasWwwData ? '✓ Nel gruppo www-data' : '⚠ Non nel gruppo www-data'}
+                    </small>
+                  </div>
+                  <div class="col-md-4">
+                    <form class="change-password-form" data-username="\${user.username}">
+                      <div class="input-group">
+                        <input type="password" class="form-control password-input" placeholder="Nuova password" required minlength="8">
+                        <button type="submit" class="btn btn-sm btn-warning">Cambia Password</button>
+                      </div>
+                    </form>
+                  </div>
+                  <div class="col-md-3">
+                    <button class="btn btn-sm btn-danger delete-user" data-username="\${user.username}">Elimina Utente</button>
+                  </div>
+                  <div class="col-md-2">
+                    \${hasWwwData ? '' : '<button class="btn btn-sm btn-info fix-group" data-username="' + user.username + '">Aggiungi a www-data</button>'}
+                  </div>
+                </div>
+              </div>
+            </div>\`;
+          }).join('');
+          
+          // Attach event listeners
+          document.querySelectorAll('.change-password-form').forEach(form => {
+            form.addEventListener('submit', async (e) => {
+              e.preventDefault();
+              const username = form.dataset.username;
+              const password = form.querySelector('input[type="password"]').value;
+              if (!confirm('Vuoi cambiare la password per ' + username + '?')) return;
+              
+              try {
+                const res = await fetch('/ftp/api/update', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username, password })
+                });
+                const result = await res.json();
+                if (result.success) {
+                  alert('Password cambiata con successo!');
+                  form.querySelector('input[type="password"]').value = '';
+                } else {
+                  alert('Errore: ' + result.error);
+                }
+              } catch (err) {
+                alert('Errore: ' + err.message);
+              }
+            });
+          });
+          
+          document.querySelectorAll('.delete-user').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const username = btn.dataset.username;
+              if (!confirm('ATTENZIONE: Vuoi eliminare l\\'utente ' + username + '? Questa operazione non può essere annullata.')) return;
+              
+              try {
+                const res = await fetch('/ftp/api/delete', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username })
+                });
+                const result = await res.json();
+                if (result.success) {
+                  alert('Utente eliminato con successo!');
+                  loadUsers();
+                } else {
+                  alert('Errore: ' + result.error);
+                }
+              } catch (err) {
+                alert('Errore: ' + err.message);
+              }
+            });
+          });
+          
+          document.querySelectorAll('.fix-group').forEach(btn => {
+            btn.addEventListener('click', async () => {
+              const username = btn.dataset.username;
+              try {
+                const res = await fetch('/ftp/api/fix-group', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ username })
+                });
+                const result = await res.json();
+                if (result.success) {
+                  alert('Utente aggiunto al gruppo www-data!');
+                  loadUsers();
+                } else {
+                  alert('Errore: ' + result.error);
+                }
+              } catch (err) {
+                alert('Errore: ' + err.message);
+              }
+            });
+          });
+        } catch (err) {
+          document.getElementById('usersList').innerHTML = '<div class="alert alert-danger">Errore nel caricamento: ' + err.message + '</div>';
+        }
+      }
+      
+      function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+      }
+      
+      // Form creazione nuovo utente
+      document.getElementById('createUserForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = document.getElementById('newUsername').value;
+        const password = document.getElementById('newPassword').value;
+        
+        try {
+          const res = await fetch('/ftp/api/create', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password })
+          });
+          const result = await res.json();
+          if (result.success) {
+            alert('Utente creato con successo!');
+            document.getElementById('createUserForm').reset();
+            loadUsers();
+          } else {
+            alert('Errore: ' + result.error);
+          }
+        } catch (err) {
+          alert('Errore: ' + err.message);
+        }
+      });
+      
+      // Carica lista al caricamento pagina
+      loadUsers();
+    </script>
+  </body>
+</html>`;
+    
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.send(html);
+  } catch (e) {
+    res.status(500).send('Errore: ' + String(e));
+  }
+});
+
+// API per ottenere lista utenti FTP
+app.get('/ftp/api/list', requireAuth, async (req, res) => {
+  try {
+    const users = await getFtpUsers();
+    res.json({ success: true, users });
+  } catch (e) {
+    res.status(500).json({ success: false, error: String(e) });
+  }
+});
+
+// API per creare nuovo utente FTP
+app.post('/ftp/api/create', requireAuth, express.json(), async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Username e password richiesti' });
+    }
+    
+    if (!/^[a-z0-9_-]+$/.test(username)) {
+      return res.status(400).json({ success: false, error: 'Username non valido. Usa solo lettere minuscole, numeri, underscore e trattini' });
+    }
+    
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password deve essere di almeno 8 caratteri' });
+    }
+    
+    // Verifica se l'utente esiste già
+    const checkUser = await execPromise(`id ${username} 2>&1`, 5000);
+    if (checkUser.stdout.includes('uid=')) {
+      return res.status(400).json({ success: false, error: 'Utente già esistente' });
+    }
+    
+    // Crea l'utente (richiede sudo)
+    // Usa echo per passare la password a chpasswd
+    const createUserResult = await execPromise(
+      `sudo useradd -m -d /home/${username} -s /bin/bash ${username} 2>&1 && echo "${username}:${password}" | sudo chpasswd 2>&1`,
+      10000
+    );
+    
+    if (createUserResult.error && !createUserResult.stdout.includes('already exists')) {
+      // Se c'è un errore ma non è "already exists", fallisce
+      if (createUserResult.stderr && !createUserResult.stderr.includes('already exists')) {
+        throw new Error(createUserResult.stderr || createUserResult.stdout);
+      }
+    }
+    
+    // Aggiungi l'utente al gruppo www-data
+    await execPromise(`sudo usermod -aG www-data ${username} 2>&1`, 5000);
+    
+    res.json({ success: true, message: 'Utente creato con successo' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: String(e) });
+  }
+});
+
+// API per modificare password utente
+app.post('/ftp/api/update', requireAuth, express.json(), async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+      return res.status(400).json({ success: false, error: 'Username e password richiesti' });
+    }
+    
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, error: 'Password deve essere di almeno 8 caratteri' });
+    }
+    
+    // Verifica se l'utente esiste
+    const checkUser = await execPromise(`id ${username} 2>&1`, 5000);
+    if (!checkUser.stdout.includes('uid=')) {
+      return res.status(400).json({ success: false, error: 'Utente non trovato' });
+    }
+    
+    // Cambia password (richiede sudo)
+    const changePassResult = await execPromise(
+      `echo "${username}:${password}" | sudo chpasswd 2>&1`,
+      5000
+    );
+    
+    if (changePassResult.error) {
+      throw new Error(changePassResult.stderr || changePassResult.stdout);
+    }
+    
+    res.json({ success: true, message: 'Password cambiata con successo' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: String(e) });
+  }
+});
+
+// API per eliminare utente
+app.post('/ftp/api/delete', requireAuth, express.json(), async (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username richiesto' });
+    }
+    
+    // Verifica che non sia l'utente corrente o root
+    if (username === 'root' || username === process.env.PANEL_USER) {
+      return res.status(400).json({ success: false, error: 'Non puoi eliminare questo utente' });
+    }
+    
+    // Elimina utente e home directory (richiede sudo)
+    const deleteUserResult = await execPromise(
+      `sudo userdel -r ${username} 2>&1`,
+      5000
+    );
+    
+    if (deleteUserResult.error && !deleteUserResult.stdout.includes('does not exist')) {
+      throw new Error(deleteUserResult.stderr || deleteUserResult.stdout);
+    }
+    
+    res.json({ success: true, message: 'Utente eliminato con successo' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: String(e) });
+  }
+});
+
+// API per aggiungere utente al gruppo www-data
+app.post('/ftp/api/fix-group', requireAuth, express.json(), async (req, res) => {
+  try {
+    const { username } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ success: false, error: 'Username richiesto' });
+    }
+    
+    // Aggiungi l'utente al gruppo www-data (richiede sudo)
+    const addGroupResult = await execPromise(
+      `sudo usermod -aG www-data ${username} 2>&1`,
+      5000
+    );
+    
+    if (addGroupResult.error) {
+      throw new Error(addGroupResult.stderr || addGroupResult.stdout);
+    }
+    
+    res.json({ success: true, message: 'Utente aggiunto al gruppo www-data' });
+  } catch (e) {
+    res.status(500).json({ success: false, error: String(e) });
   }
 });
 
