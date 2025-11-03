@@ -297,6 +297,16 @@ async function regenerateCaddyfile() {
 ${envVars.APP_DOMAIN ? `${envVars.APP_DOMAIN} {
     encode zstd gzip
     root * /var/www/gestionale
+    
+    # Servi i file statici direttamente se esistono (prima di PHP)
+    @static {
+        path *.css *.js *.jpg *.jpeg *.png *.gif *.svg *.ico *.woff *.woff2 *.ttf *.eot
+    }
+    handle @static {
+        file_server
+    }
+    
+    # Tutto il resto va a PHP
     php_fastcgi php:9000
     try_files {path} {path}/ /index.php?{query}
     file_server
@@ -315,6 +325,9 @@ ${envVars.PANEL_DOMAIN ? `${envVars.PANEL_DOMAIN} {
 }` : ''}
 
 ${envVars.PHPMYADMIN_DOMAIN ? `${envVars.PHPMYADMIN_DOMAIN} {
+    ${envVars.PHPMYADMIN_BASIC_AUTH_USER && envVars.PHPMYADMIN_BASIC_AUTH_PASSWORD ? `basicauth {
+        ${envVars.PHPMYADMIN_BASIC_AUTH_USER} ${envVars.PHPMYADMIN_BASIC_AUTH_PASSWORD}
+    }` : ''}
     reverse_proxy phpmyadmin:80
 }` : ''}
 
