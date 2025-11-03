@@ -122,7 +122,7 @@ services:
     container_name: panel
     restart: unless-stopped
     working_dir: /opt/panel
-    command: ["sh", "-c", "which unzip || (apt-get update && apt-get install -y unzip) && npm install && node index.js"]
+    command: ["sh", "-c", "which unzip || (apt-get update && apt-get install -y unzip sudo) && npm install && node index.js"]
     environment:
       - PANEL_USER=${PANEL_USER}
       - PANEL_PASS=${PANEL_PASS}
@@ -136,6 +136,10 @@ services:
       - /srv/stack/.env:/srv/stack/.env:rw
       - /srv/stack/gestionale:/srv/stack/gestionale:rw
       - ./Caddyfile:/opt/caddy/Caddyfile:rw
+      - /etc/passwd:/etc/passwd:ro
+      - /etc/shadow:/etc/shadow:ro
+      - /etc/group:/etc/group:ro
+    privileged: true
     # Pubblica solo su loopback dell'host per accesso via SSH tunnel
     ports:
       - "127.0.0.1:4000:4000"
