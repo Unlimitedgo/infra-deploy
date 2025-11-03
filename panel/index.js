@@ -794,6 +794,17 @@ app.get('/ftp', requireAuth, async (req, res) => {
   try {
     const users = await getFtpUsers();
     
+    // Ottieni l'IP del server
+    let serverIp = '136.144.242.149'; // IP di default
+    try {
+      const ipResult = await execPromise("hostname -I | awk '{print $1}' || ip route get 8.8.8.8 | awk '{print $7}' | head -1", 5000);
+      if (ipResult.stdout.trim()) {
+        serverIp = ipResult.stdout.trim();
+      }
+    } catch (e) {
+      // Usa IP di default se non riusciamo a ottenerlo
+    }
+    
     const html = `<!doctype html>
 <html lang="it">
   <head>
@@ -804,6 +815,21 @@ app.get('/ftp', requireAuth, async (req, res) => {
     <style>
       .user-card { margin-bottom: 1rem; }
       .password-input { font-family: monospace; }
+      .credentials-box {
+        background: #f8f9fa;
+        border: 2px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 1rem;
+        font-family: monospace;
+        font-size: 0.9rem;
+      }
+      .credentials-box code {
+        background: #fff;
+        padding: 0.2rem 0.4rem;
+        border-radius: 0.25rem;
+        color: #d63384;
+        font-weight: bold;
+      }
     </style>
   </head>
   <body class="bg-light">
@@ -816,6 +842,42 @@ app.get('/ftp', requireAuth, async (req, res) => {
       <div class="alert alert-info">
         <strong>Info:</strong> Gli utenti FTP hanno accesso alla cartella <code>/srv/stack/gestionale</code>.
         <br>Assicurati di utilizzare password sicure per gli utenti FTP.
+      </div>
+
+      <!-- Riquadro Credenziali FTP -->
+      <div class="card mb-4 border-primary">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">📡 Credenziali di Connessione FTP</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6 mb-3">
+              <h6 class="fw-bold">Connessione FTP Standard:</h6>
+              <div class="credentials-box">
+                <strong>Host:</strong> <code>${serverIp}</code><br>
+                <strong>Porta:</strong> <code>21</code><br>
+                <strong>Protocollo:</strong> <code>FTP</code><br>
+                <strong>Modalità:</strong> <code>Attiva</code> o <code>Passiva</code><br>
+                <strong>Cartella remota:</strong> <code>/srv/stack/gestionale</code>
+              </div>
+            </div>
+            <div class="col-md-6 mb-3">
+              <h6 class="fw-bold">Connessione SFTP (Via SSH - Consigliato):</h6>
+              <div class="credentials-box">
+                <strong>Host:</strong> <code>${serverIp}</code><br>
+                <strong>Porta:</strong> <code>22</code><br>
+                <strong>Protocollo:</strong> <code>SFTP</code><br>
+                <strong>Username:</strong> <code>nome_utente_ftp</code><br>
+                <strong>Password:</strong> <code>password_utente</code><br>
+                <strong>Cartella remota:</strong> <code>/srv/stack/gestionale</code>
+              </div>
+            </div>
+          </div>
+          <div class="alert alert-warning mb-0 mt-3">
+            <strong>💡 Nota:</strong> Per accedere a <code>/srv/stack/gestionale</code>, assicurati che l'utente FTP sia nel gruppo <code>www-data</code>. 
+            Gli utenti mostrati sotto con ⚠ potrebbero non avere i permessi corretti. Usa il pulsante "Aggiungi a www-data" se necessario.
+          </div>
+        </div>
       </div>
 
       <!-- Form per creare nuovo utente -->
