@@ -5,8 +5,9 @@
 
 {$APP_DOMAIN} {
     encode zstd gzip
-    root * /var/www/gestionale/public
+    root * /var/www/gestionale
     php_fastcgi php:9000
+    try_files {path} {path}/ /index.php?{query}
     file_server
 }
 
