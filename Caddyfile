@@ -6,6 +6,17 @@
 {$APP_DOMAIN} {
     encode zstd gzip
     root * /var/www/gestionale
+    
+    # Servi i file statici direttamente se esistono
+    @static {
+        file
+        path *.css *.js *.jpg *.jpeg *.png *.gif *.svg *.ico *.woff *.woff2 *.ttf *.eot
+    }
+    handle @static {
+        file_server
+    }
+    
+    # Tutto il resto va a PHP
     php_fastcgi php:9000
     try_files {path} {path}/ /index.php?{query}
     file_server
