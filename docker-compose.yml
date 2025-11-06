@@ -72,6 +72,10 @@ services:
       - PMA_USER=${MYSQL_USER}
       - PMA_PASSWORD=${MYSQL_PASSWORD}
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      # Aumenta i limiti di upload per file SQL grandi
+      - UPLOAD_LIMIT=500M
+      - MAX_EXECUTION_TIME=3600
+      - MEMORY_LIMIT=512M
     depends_on:
       - db
     networks:
