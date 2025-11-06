@@ -49,17 +49,32 @@ echo "🔐 Creazione utente '$MYSQL_USER'..."
 
 # Crea l'utente con host %
 echo "   Creazione utente con host '%'..."
-docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF 2>&1
-CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';
-GRANT ALL PRIVILEGES ON *.* TO '$MYSQL_USER'@'%' WITH GRANT OPTION;
-EOF
+if docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '$MYSQL_USER'@'%' IDENTIFIED BY '$MYSQL_PASSWORD';" 2>&1; then
+    echo "   ✅ Utente creato con host '%'"
+else
+    echo "   ⚠️  Errore nella creazione utente con host '%' (potrebbe già esistere)"
+fi
+
+# Assegna privilegi
+echo "   Assegnazione privilegi..."
+if docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO '$MYSQL_USER'@'%' WITH GRANT OPTION;" 2>&1; then
+    echo "   ✅ Privilegi assegnati"
+else
+    echo "   ⚠️  Errore nell'assegnazione privilegi"
+fi
 
 # Crea l'utente con host localhost
 echo "   Creazione utente con host 'localhost'..."
-docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" <<EOF 2>&1
-CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$MYSQL_PASSWORD';
-GRANT ALL PRIVILEGES ON *.* TO '$MYSQL_USER'@'localhost' WITH GRANT OPTION;
-EOF
+if docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "CREATE USER IF NOT EXISTS '$MYSQL_USER'@'localhost' IDENTIFIED BY '$MYSQL_PASSWORD';" 2>&1; then
+    echo "   ✅ Utente creato con host 'localhost'"
+else
+    echo "   ⚠️  Errore nella creazione utente con host 'localhost' (potrebbe già esistere)"
+fi
+
+# Assegna privilegi per localhost
+if docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO '$MYSQL_USER'@'localhost' WITH GRANT OPTION;" 2>&1; then
+    echo "   ✅ Privilegi assegnati per localhost"
+fi
 
 # Flush privilegi
 echo "   Applicazione privilegi..."
@@ -67,11 +82,30 @@ docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "FLUSH PRIVILEGES;" 2>&
 
 echo ""
 echo "✅ Verifica utente creato..."
-docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='$MYSQL_USER';"
+USERS=$(docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SELECT User, Host FROM mysql.user WHERE User='$MYSQL_USER';" 2>&1)
+if echo "$USERS" | grep -q "$MYSQL_USER"; then
+    echo "$USERS"
+    echo "   ✅ Utente trovato!"
+else
+    echo "   ❌ Utente NON trovato!"
+    echo "   Output: $USERS"
+    exit 1
+fi
 
 echo ""
 echo "✅ Verifica privilegi..."
-docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW GRANTS FOR '$MYSQL_USER'@'%';"
+GRANTS=$(docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW GRANTS FOR '$MYSQL_USER'@'%';" 2>&1)
+if echo "$GRANTS" | grep -q "GRANT ALL PRIVILEGES"; then
+    echo "$GRANTS"
+    echo "   ✅ Privilegi corretti!"
+else
+    echo "   ⚠️  Privilegi non corretti o utente non esiste"
+    echo "   Output: $GRANTS"
+    echo ""
+    echo "   Tentativo di correzione..."
+    docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "GRANT ALL PRIVILEGES ON *.* TO '$MYSQL_USER'@'%' WITH GRANT OPTION; FLUSH PRIVILEGES;" 2>&1
+    docker exec db mysql -u root -p"$MYSQL_ROOT_PASSWORD" -e "SHOW GRANTS FOR '$MYSQL_USER'@'%';" 2>&1
+fi
 
 echo ""
 echo "🧪 Test connessione..."
