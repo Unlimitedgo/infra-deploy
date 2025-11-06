@@ -115,16 +115,13 @@ fi
 echo ""
 echo "📋 [5/6] Verifica porte firewall..."
 if command -v ufw >/dev/null 2>&1; then
-    if ufw status | grep -q "80/tcp.*ALLOW" && ufw status | grep -q "443/tcp.*ALLOW"; then
+    if sudo ufw status 2>/dev/null | grep -q "80/tcp.*ALLOW" && sudo ufw status 2>/dev/null | grep -q "443/tcp.*ALLOW"; then
         echo -e "${GREEN}✅ Porte 80 e 443 aperte${NC}"
     else
         echo -e "${YELLOW}⚠️  Porte 80/443 potrebbero essere chiuse${NC}"
-        read -p "Vuoi aprire le porte? (s/N): " -r response
-        if [[ "$response" =~ ^[sS]$ ]]; then
-            ufw allow 80/tcp
-            ufw allow 443/tcp
-            echo -e "${GREEN}✅ Porte aperte${NC}"
-        fi
+        echo "   Per aprire le porte, esegui manualmente:"
+        echo "   sudo ufw allow 80/tcp"
+        echo "   sudo ufw allow 443/tcp"
     fi
 else
     echo -e "${YELLOW}⚠️  UFW non installato, verifica manualmente il firewall${NC}"
