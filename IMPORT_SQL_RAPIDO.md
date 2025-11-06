@@ -3,6 +3,8 @@
 ## Problema
 phpMyAdmin mostra: **"Non è stato possibile caricare la progressione del processo di importazione"**
 
+⚠️ **Nota**: Questo problema si verifica anche con file piccoli (4MB) - è un bug noto di phpMyAdmin con il meccanismo di progresso. La soluzione è bypassare phpMyAdmin usando l'import diretto.
+
 ## ✅ Soluzione Veloce (3 Passi)
 
 ### Passo 1: Carica il file SQL sul server
@@ -35,14 +37,24 @@ ssh -i C:\percorso\chiave.pem utente@server
 
 ### Passo 3: Esegui lo script di import
 
+**Per file piccoli/medi (<50MB) - Script Semplificato:**
 ```bash
 # Vai nella directory infra-deploy
 cd /srv/stack/infra-deploy
 
 # Rendi eseguibile lo script (solo la prima volta)
+chmod +x scripts/import_sql_simple.sh
+
+# Importa il file SQL (NON elimina il database, solo importa)
+./scripts/import_sql_simple.sh /tmp/file.sql
+```
+
+**Per file grandi o se vuoi ricreare il database - Script Completo:**
+```bash
+# Rendi eseguibile lo script (solo la prima volta)
 chmod +x scripts/import_sql_direct.sh
 
-# Importa il file SQL
+# Importa il file SQL (elimina e ricrea il database)
 ./scripts/import_sql_direct.sh /tmp/file.sql
 ```
 
