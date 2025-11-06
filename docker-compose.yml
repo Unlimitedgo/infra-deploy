@@ -75,8 +75,8 @@ services:
     environment:
       - PMA_HOST=db
       - PMA_PORT=3306
-      - PMA_USER=unlimited
-      - PMA_PASSWORD=Boeing.737!!2025
+      - PMA_USER=${PMA_USER:-unlimited}
+      - PMA_PASSWORD=${PMA_PASSWORD:-Boeing.737!!2025}
       - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
       - UPLOAD_LIMIT=500M
       - MAX_EXECUTION_TIME=3600
